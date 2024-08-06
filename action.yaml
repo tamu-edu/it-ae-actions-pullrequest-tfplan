@@ -41,7 +41,7 @@ runs:
   using: "composite"
   steps:
     - name: setup Terraform
-      uses: hashicorp/setup-terraform@v2
+      uses: hashicorp/setup-terraform@v3.1.1
       with:
         terraform_version: ${{ inputs.terraform-version }}
 
