@@ -29,7 +29,7 @@ inputs:
     required: false
     default: ""
   workflow-artifact-name:
-    description: Provides a unique name to append to the plan artifact attached to this workflow run. Default: tfplan
+    description: Provides a unique name to append to the plan artifact attached to this workflow run. Default tfplan
     required: false
     default: "tfplan"
 
