@@ -28,6 +28,10 @@ inputs:
     description: CLI flags to use with terraform plan
     required: false
     default: ""
+  workflow-artifact-name:
+    description: Provides a unique name to append to the plan artifact attached to this workflow run. Default: tfplan
+    required: false
+    default: "tfplan"
 
 
 outputs:
@@ -114,7 +118,7 @@ runs:
       id: save-artifact
       uses: actions/upload-artifact@v4
       with:
-        name: pr-${{ github.event.pull_request.number }}-tfplan
+        name: pr-${{ github.event.pull_request.number }}-${{ inputs.workflow-artifact-name }}
         path: ${{ github.workspace }}/${{ inputs.working-directory }}/tfplan
       env:
         GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}
