@@ -32,6 +32,10 @@ inputs:
     description: Provides a unique name to append to the plan artifact attached to this workflow run. Default tfplan
     required: false
     default: "tfplan"
+  header:
+    description: Start all PR comments with this header to unique identify this thread
+    required: false
+    default: "Terraform Plan Output"
 
 
 outputs:
@@ -66,18 +70,34 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: terraform init ${{ inputs.terraform-init-flags }}
+      continue-on-error: true
 
-    - name: Post Init
-      if: ${{ github.event_name == 'pull_request' }}
-      uses: tamu-edu/it-ae-actions-terraform-pr-commenter@dev
+    - name: Post Terraform init failure
+      if: ${{ failure() && (github.event_name == 'pull_request') }}
+      uses: actions/github-script@v7
       with:
-        commenter_type: init
-        commenter_input: ${{ format('{0}{1}', steps.init.outputs.stdout, steps.init.outputs.stderr) }}
-        commenter_exitcode: ${{ steps.init.outputs.exitcode }}
-      env:
-        GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}
-        TF_WORKSPACE: ${{ inputs.terraform-workspace }}
+        github-token: ${{ inputs.GITHUB_TOKEN }}
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `# Terraform Init Failure
+              ## ${{ inputs.header }}
 
+              ## Details
+              - **Workflow Header**: ${{ inputs.header }}
+              - **Job ID**: ${{ github.job }}
+              - **Step**: terraform init
+              - **Status**: Failed
+              
+
+              ## Error output
+              ${{ steps.init.outputs.stdout}}
+              ${{ steps.init.outputs.stderr}}`
+          })
+          core.setFailed('The terraform init step failed.');
+          
     - name: Terraform Plan
       id: plan
       shell: bash
@@ -89,31 +109,13 @@ runs:
         terraform plan -out=tfplan -input=false ${{ inputs.terraform-plan-flags }}
       continue-on-error: true
 
-    - name: generate tf-summarize table
-      id: summary
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      env:
-        TF_WORKSPACE: ${{ inputs.terraform-workspace }}
-      run: |
-        EOF=$(openssl rand -hex 8)
-
-        echo "table<<$EOF" >> $GITHUB_OUTPUT
-        terraform-bin show -json tfplan | tf-summarize -md >> $GITHUB_OUTPUT
-        echo "$EOF" >> $GITHUB_OUTPUT
-
-    - name: Post terraform plan
-      if: ${{ github.event_name == 'pull_request' }}
-      uses: tamu-edu/it-ae-actions-terraform-pr-commenter@dev
+    - name: Post PR comment
+      uses: borchero/terraform-plan-comment@v2
       with:
-        commenter_type: plan
-        commenter_input: ${{ format('{0}{1}', steps.plan.outputs.stdout, steps.plan.outputs.stderr) }}
-        commenter_exitcode: ${{ steps.plan.outputs.exitcode }}
-        comment_prepend: ${{ steps.summary.outputs.table }}
-      env:
-        GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}
-        TF_WORKSPACE: ${{ inputs.terraform-workspace }}
-
+        header: ${{ inputs.header }}
+        token: ${{ inputs.GITHUB_TOKEN }}
+        planfile: tfplan
+        
     - name: Save Artifact
       id: save-artifact
       uses: actions/upload-artifact@v4
