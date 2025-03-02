@@ -115,6 +115,7 @@ runs:
         header: ${{ inputs.header }}
         token: ${{ inputs.GITHUB_TOKEN }}
         planfile: tfplan
+        working-directory: ${{ inputs.working-directory }}
         
     - name: Save Artifact
       id: save-artifact
