@@ -53,69 +53,78 @@ runs:
       with:
         terraform_version: ${{ inputs.terraform-version }}
 
-    - name: install terraform-plan-summary
-      shell: bash
-      run: |
-        REPO="dineshba/terraform-plan-summary"
-        curl -LO https://github.com/$REPO/releases/latest/download/tf-summarize_linux_amd64.tar.gz
-        tmpDir=$(mktemp -d -t tmp.XXXXXXXXXX)
-        mv tf-summarize_linux_amd64.tar.gz $tmpDir
-        cd $tmpDir
-        tar -xzf tf-summarize_linux_amd64.tar.gz
-        chmod +x tf-summarize
-        echo $PWD >> $GITHUB_PATH
+    # - name: install terraform-plan-summary
+    #   shell: bash
+    #   run: |
+    #     REPO="dineshba/terraform-plan-summary"
+    #     curl -LO https://github.com/$REPO/releases/latest/download/tf-summarize_linux_amd64.tar.gz
+    #     tmpDir=$(mktemp -d -t tmp.XXXXXXXXXX)
+    #     mv tf-summarize_linux_amd64.tar.gz $tmpDir
+    #     cd $tmpDir
+    #     tar -xzf tf-summarize_linux_amd64.tar.gz
+    #     chmod +x tf-summarize
+    #     echo $PWD >> $GITHUB_PATH
 
-    - name: Terraform Init
-      id: init
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: terraform init ${{ inputs.terraform-init-flags }}
-      continue-on-error: true
+    # - name: Terraform Init
+    #   id: init
+    #   shell: bash
+    #   working-directory: ${{ inputs.working-directory }}
+    #   run: terraform init ${{ inputs.terraform-init-flags }}
+    #   continue-on-error: true
 
-    - name: Post Terraform init failure
-      if: ${{ failure() && (github.event_name == 'pull_request') }}
-      uses: actions/github-script@v7
-      with:
-        github-token: ${{ inputs.GITHUB_TOKEN }}
-        script: |
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: `# Terraform Init Failure
-              ## ${{ inputs.header }}
+    # - name: Post Terraform init failure
+    #   if: ${{ failure() && (github.event_name == 'pull_request') }}
+    #   uses: actions/github-script@v7
+    #   with:
+    #     github-token: ${{ inputs.GITHUB_TOKEN }}
+    #     script: |
+    #       github.rest.issues.createComment({
+    #         issue_number: context.issue.number,
+    #         owner: context.repo.owner,
+    #         repo: context.repo.repo,
+    #         body: `# Terraform Init Failure
+    #           ## ${{ inputs.header }}
 
-              ## Details
-              - **Workflow Header**: ${{ inputs.header }}
-              - **Job ID**: ${{ github.job }}
-              - **Step**: terraform init
-              - **Status**: Failed
+    #           ## Details
+    #           - **Workflow Header**: ${{ inputs.header }}
+    #           - **Job ID**: ${{ github.job }}
+    #           - **Step**: terraform init
+    #           - **Status**: Failed
               
 
-              ## Error output
-              ${{ steps.init.outputs.stdout}}
-              ${{ steps.init.outputs.stderr}}`
-          })
-          core.setFailed('The terraform init step failed.');
+    #           ## Error output
+    #           ${{ steps.init.outputs.stdout}}
+    #           ${{ steps.init.outputs.stderr}}`
+    #       })
+    #       core.setFailed('The terraform init step failed.');
           
-    - name: Terraform Plan
-      id: plan
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      env:
-        TF_WORKSPACE: ${{ inputs.terraform-workspace }}
-        TF_IN_AUTOMATION: "true"
-      run: |
-        terraform plan -out=tfplan -input=false ${{ inputs.terraform-plan-flags }}
-      continue-on-error: true
+    # - name: Terraform Plan
+    #   id: plan
+    #   shell: bash
+    #   working-directory: ${{ inputs.working-directory }}
+    #   env:
+    #     TF_WORKSPACE: ${{ inputs.terraform-workspace }}
+    #     TF_IN_AUTOMATION: "true"
+    #   run: |
+    #     terraform plan -out=tfplan -input=false ${{ inputs.terraform-plan-flags }}
+    #   continue-on-error: true
+
+    # - name: Post PR comment
+    #   uses: borchero/terraform-plan-comment@v2
+    #   with:
+    #     header: ${{ inputs.header }}
+    #     token: ${{ inputs.GITHUB_TOKEN }}
+    #     planfile: tfplan
+    #     working-directory: ${{ inputs.working-directory }}
 
     - name: Post PR comment
-      uses: borchero/terraform-plan-comment@v2
+      uses: op5dev/tf-via-pr@v13
       with:
-        header: ${{ inputs.header }}
-        token: ${{ inputs.GITHUB_TOKEN }}
-        planfile: tfplan
+        # Run plan by default, or apply on push to main.
         working-directory: ${{ inputs.working-directory }}
+        command: plan
+        arg-workspace: ${{ inputs.terraform-workspace }}
+        token: ${{ inputs.GITHUB_TOKEN }}
         
     - name: Save Artifact
       id: save-artifact
