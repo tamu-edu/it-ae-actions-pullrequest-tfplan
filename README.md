@@ -6,6 +6,7 @@ A GitHub composite action for generating and posting a terraform plan to a pull 
 | Name | Description | Default | Required |
 |------|-------------|---------|:--------:|
 | debug | Enable `tmate.io` debugging if a failure occurs | `false` | No |
+| save-artifact | Save terraform plan as artifact in Github Action | `false` | No |
 
 ## Outputs
 
