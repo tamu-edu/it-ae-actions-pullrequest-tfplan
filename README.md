@@ -5,8 +5,15 @@ A GitHub composite action for generating and posting a terraform plan to a pull 
 
 | Name | Description | Default | Required |
 |------|-------------|---------|:--------:|
-| debug | Enable `tmate.io` debugging if a failure occurs | `false` | No |
-| save-artifact | Save terraform plan as artifact in Github Action | `false` | No |
+| debug | Debug workflow with tmate if an error occurs | `false` | No |
+| GITHUB_TOKEN | GitHub token for access to the pull request |  | Yes |
+| save-artifact | Save the terraform plan as an artifact (May contain sensitive data) | `false` | No |
+| working-directory | Working directory for the `run` actions | `""` | No |
+| terraform-version | Version of terraform to install | latest | No |
+| terraform-workspace | Terraform workspace to select. Must already exist  | default | No |
+| terraform-init-flags | CLI flags to use with terraform init | `""` | No |
+| terraform-plan-flags | CLI flags to use with terraform plan | `""` | No |
+| workflow-artifact-name | Provides a unique name to append to the plan artifact attached to this workflow run. Default tfplan | "tfplan" | No |
 
 ## Outputs
 
