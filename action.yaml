@@ -70,8 +70,10 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
-        TF_VAR_github_token: ${{ inputs.GITHUB_TOKEN }}
-      run: terraform init ${{ inputs.terraform-init-flags }}
+        GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}
+      run: |
+          git config --global url."https://oauth2:${GITHUB_TOKEN}@github.com".insteadOf https://github.com
+          terraform init ${{ inputs.terraform-init-flags }}
 
     - name: Post Init
       if: ${{ github.event_name == 'pull_request' }}
