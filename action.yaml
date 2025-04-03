@@ -71,7 +71,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}
-      run: terraform init ${{ inputs.terraform-init-flags }}
+      run: terraform init ${{ inputs.terraform-init-flags }} -var "github_token=${{ secrets.GITHUB_TOKEN }}"
 
     - name: Post Init
       if: ${{ github.event_name == 'pull_request' }}
