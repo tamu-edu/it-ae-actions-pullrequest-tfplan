@@ -41,7 +41,7 @@ inputs:
 outputs:
   plan:
     description: 'The plan output'
-    value: ${{ format('{0}{1}', steps.init.outputs.stdout, steps.init.outputs.stderr) }}
+    value: ${{ steps.plan-output.outputs.use-file == 'true' && format('Plan output too large ({0} bytes) - check workflow logs', steps.plan-output.outputs.content-size) || format('{0}{1}', steps.plan-output.outputs.stdout, steps.plan-output.outputs.stderr) }}
   artifact:
     description: 'The file name of the terraform plan artifact'
     value: "pr-${{ github.event.pull_request.number }}-tfplan"
@@ -90,8 +90,84 @@ runs:
         TF_WORKSPACE: ${{ inputs.terraform-workspace }}
         TF_IN_AUTOMATION: "true"
       run: |
-        terraform plan -out=tfplan -input=false ${{ inputs.terraform-plan-flags }}
+        # Create temp files for capturing output to avoid ARG_MAX issues
+        PLAN_STDOUT_FILE=$(mktemp)
+        PLAN_STDERR_FILE=$(mktemp)
+        
+        # Run terraform plan with tee to capture output to files while still showing in logs
+        set +e  # Don't exit on terraform plan errors
+        terraform plan -out=tfplan -input=false ${{ inputs.terraform-plan-flags }} 2> >(tee "$PLAN_STDERR_FILE" >&2) | tee "$PLAN_STDOUT_FILE"
+        PLAN_EXIT_CODE=$?
+        set -e
+        
+        # Store file paths in outputs for later use
+        echo "stdout-file=$PLAN_STDOUT_FILE" >> $GITHUB_OUTPUT
+        echo "stderr-file=$PLAN_STDERR_FILE" >> $GITHUB_OUTPUT
+        echo "exitcode=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
+        
+        # Set exit code for continue-on-error handling
+        exit $PLAN_EXIT_CODE
       continue-on-error: true
+
+    - name: Process terraform plan output safely
+      id: plan-output
+      shell: bash
+      run: |
+        # Read the captured output files
+        STDOUT_CONTENT=$(cat "${{ steps.plan.outputs.stdout-file }}")
+        STDERR_CONTENT=$(cat "${{ steps.plan.outputs.stderr-file }}")
+        
+        # Calculate content sizes to check for ARG_MAX issues
+        STDOUT_SIZE=${#STDOUT_CONTENT}
+        STDERR_SIZE=${#STDERR_CONTENT}
+        TOTAL_SIZE=$((STDOUT_SIZE + STDERR_SIZE))
+        
+        echo "Terraform plan output sizes:"
+        echo "  STDOUT: $STDOUT_SIZE bytes"
+        echo "  STDERR: $STDERR_SIZE bytes"
+        echo "  Total: $TOTAL_SIZE bytes"
+        
+        # Check if content is too large for environment variables
+        # Use a conservative limit (2MB) to stay well under ARG_MAX (typically 4MB)
+        MAX_SAFE_SIZE=2097152  # 2MB
+        
+        if [ $TOTAL_SIZE -gt $MAX_SAFE_SIZE ]; then
+          echo "⚠️  Content is too large ($TOTAL_SIZE bytes > $MAX_SAFE_SIZE limit)"
+          echo "Using file-based approach to avoid ARG_MAX issues..."
+          
+          # Create a combined output file in workspace
+          PLAN_OUTPUT_FILE="${{ github.workspace }}/terraform-plan-output.txt"
+          {
+            echo "$STDOUT_CONTENT"
+            if [ -n "$STDERR_CONTENT" ]; then
+              echo "$STDERR_CONTENT"
+            fi
+          } > "$PLAN_OUTPUT_FILE"
+          
+          echo "plan-file=$PLAN_OUTPUT_FILE" >> $GITHUB_OUTPUT
+          echo "use-file=true" >> $GITHUB_OUTPUT
+          echo "content-size=$TOTAL_SIZE" >> $GITHUB_OUTPUT
+        else
+          echo "✅ Content size is safe for environment variables"
+          
+          # Use heredoc to safely set outputs for smaller content
+          EOF_STDOUT=$(openssl rand -hex 8)
+          EOF_STDERR=$(openssl rand -hex 8)
+          
+          echo "stdout<<$EOF_STDOUT" >> $GITHUB_OUTPUT
+          echo "$STDOUT_CONTENT" >> $GITHUB_OUTPUT
+          echo "$EOF_STDOUT" >> $GITHUB_OUTPUT
+          
+          echo "stderr<<$EOF_STDERR" >> $GITHUB_OUTPUT
+          echo "$STDERR_CONTENT" >> $GITHUB_OUTPUT
+          echo "$EOF_STDERR" >> $GITHUB_OUTPUT
+          
+          echo "use-file=false" >> $GITHUB_OUTPUT
+          echo "content-size=$TOTAL_SIZE" >> $GITHUB_OUTPUT
+        fi
+        
+        # Clean up temp files
+        rm -f "${{ steps.plan.outputs.stdout-file }}" "${{ steps.plan.outputs.stderr-file }}"
 
     - name: generate tf-summarize table
       id: summary
@@ -106,12 +182,34 @@ runs:
         terraform-bin show -json tfplan | tf-summarize -md >> $GITHUB_OUTPUT
         echo "$EOF" >> $GITHUB_OUTPUT
 
-    - name: Post terraform plan
-      if: ${{ github.event_name == 'pull_request' }}
+    - name: Post terraform plan (normal size)
+      if: ${{ github.event_name == 'pull_request' && steps.plan-output.outputs.use-file == 'false' }}
       uses: tamu-edu/it-ae-actions-terraform-pr-commenter@dev
       with:
         commenter_type: plan
-        commenter_input: ${{ format('{0}{1}', steps.plan.outputs.stdout, steps.plan.outputs.stderr) }}
+        commenter_input: ${{ format('{0}{1}', steps.plan-output.outputs.stdout, steps.plan-output.outputs.stderr) }}
+        commenter_exitcode: ${{ steps.plan.outputs.exitcode }}
+        comment_prepend: ${{ steps.summary.outputs.table }}
+      env:
+        GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}
+        TF_WORKSPACE: ${{ inputs.terraform-workspace }}
+
+    - name: Post terraform plan (large content - summary only)
+      if: ${{ github.event_name == 'pull_request' && steps.plan-output.outputs.use-file == 'true' }}
+      uses: tamu-edu/it-ae-actions-terraform-pr-commenter@dev
+      with:
+        commenter_type: plan
+        commenter_input: |
+          ## ⚠️ Terraform Plan Output Too Large
+          
+          The terraform plan output is **${{ steps.plan-output.outputs.content-size }} bytes**, which exceeds safe limits for GitHub Actions environment variables.
+          
+          **Plan Status:** ${{ steps.plan.outputs.exitcode == '0' && '✅ Success' || '❌ Failed' }}
+          **Exit Code:** ${{ steps.plan.outputs.exitcode }}
+          **Output Size:** ${{ steps.plan-output.outputs.content-size }} bytes
+          
+          The full plan output has been captured but cannot be displayed here due to ARG_MAX limitations.
+          Please check the workflow logs for complete details.
         commenter_exitcode: ${{ steps.plan.outputs.exitcode }}
         comment_prepend: ${{ steps.summary.outputs.table }}
       env:

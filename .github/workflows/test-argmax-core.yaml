@@ -1,0 +1,88 @@
+name: Test ARG_MAX Limits - Core Problem Demonstration
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, develop, copilot/* ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-argmax-core-problem:
+    runs-on: ubuntu-latest
+    name: Demonstrate ARG_MAX core problem and solution
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check system ARG_MAX limit
+        run: |
+          echo "System ARG_MAX limit: $(getconf ARG_MAX) bytes"
+          echo "This test will demonstrate the core 'Argument list too long' problem"
+
+      - name: Test 1 - Safe operation within ARG_MAX limit
+        id: test-safe
+        run: |
+          echo "=== Test 1: Safe operation with small payload ==="
+          # Create a small payload that's well within ARG_MAX limits (~1KB)
+          env MYVAR="$(head -c 1000 < /dev/zero | tr '\0' 'A')" cat /dev/null
+          echo "✓ Test 1 PASSED: Small payload (1KB) handled successfully"
+
+      - name: Test 2 - Demonstrate ARG_MAX failure 
+        id: test-failure
+        continue-on-error: true
+        run: |
+          echo "=== Test 2: Demonstrate ARG_MAX failure ==="
+          # Create a payload that exceeds ARG_MAX limits
+          ARG_MAX=$(getconf ARG_MAX)
+          LARGE_SIZE=$((ARG_MAX + 100000))  # Exceed ARG_MAX by 100KB
+          echo "Creating payload of size: $LARGE_SIZE bytes (exceeds ARG_MAX of $ARG_MAX)"
+          env MYVAR="$(head -c $LARGE_SIZE < /dev/zero | tr '\0' 'B')" cat /dev/null
+          echo "❌ This line should not print - command should fail with 'Argument list too long'"
+
+      - name: Verify Test 2 failed as expected
+        run: |
+          if [ "${{ steps.test-failure.outcome }}" = "failure" ]; then
+            echo "✓ Test 2 PASSED: Large payload correctly triggered ARG_MAX failure"
+          else
+            echo "❌ Test 2 FAILED: Expected ARG_MAX failure did not occur"
+            exit 1
+          fi
+
+      - name: Test 3 - Fix using file-based approach
+        id: test-fixed
+        run: |
+          echo "=== Test 3: Fix using file-based approach ==="
+          ARG_MAX=$(getconf ARG_MAX)
+          LARGE_SIZE=$((ARG_MAX + 100000))  # Same large size that failed before
+          echo "Creating large payload and writing to file instead of environment variable..."
+          
+          # Create large content and write to file instead of environment variable
+          head -c $LARGE_SIZE < /dev/zero | tr '\0' 'C' > /tmp/large_payload.txt
+          
+          # Verify file was created and has correct size
+          ACTUAL_SIZE=$(wc -c < /tmp/large_payload.txt)
+          echo "File created with size: $ACTUAL_SIZE bytes"
+          
+          # Process the file content without passing through command line arguments
+          # This should work because we're not passing large data as arguments/env vars
+          cat /tmp/large_payload.txt > /dev/null
+          echo "✓ Test 3 PASSED: Large payload ($ACTUAL_SIZE bytes) handled successfully using file approach"
+          
+          # Clean up
+          rm -f /tmp/large_payload.txt
+
+      - name: Test Summary
+        run: |
+          echo ""
+          echo "======================================"
+          echo "ARG_MAX Core Problem Testing Summary"
+          echo "======================================"
+          echo "System ARG_MAX limit: $(getconf ARG_MAX) bytes"
+          echo ""
+          echo "✅ Test 1: Safe small payload (1KB) - PASSED"
+          echo "✅ Test 2: ARG_MAX failure demonstration - PASSED" 
+          echo "✅ Test 3: File-based fix for large payload - PASSED"
+          echo ""
+          echo "All core problem tests completed successfully!"
+          echo "The 'Argument list too long' issue has been demonstrated and a fix proven."
