@@ -92,17 +92,18 @@ runs:
       id: init-output
       shell: bash
       run: |
-        # Create files for both stdout and stderr content
-        INIT_STDOUT_FILE="${{ github.workspace }}/terraform-init-stdout.txt"
-        INIT_STDERR_FILE="${{ github.workspace }}/terraform-init-stderr.txt"
+        # Create combined output file for the file-based interface
+        INIT_COMBINED_FILE="${{ github.workspace }}/terraform-init-output.txt"
         
-        # Read the captured output files and save to persistent files
-        cat "${{ steps.init.outputs.stdout-file }}" > "$INIT_STDOUT_FILE"
-        cat "${{ steps.init.outputs.stderr-file }}" > "$INIT_STDERR_FILE"
+        # Combine stdout and stderr into a single file
+        cat "${{ steps.init.outputs.stdout-file }}" > "$INIT_COMBINED_FILE"
+        if [ -s "${{ steps.init.outputs.stderr-file }}" ]; then
+          echo "" >> "$INIT_COMBINED_FILE"  # Add newline if there's stderr content
+          cat "${{ steps.init.outputs.stderr-file }}" >> "$INIT_COMBINED_FILE"
+        fi
         
-        # Set outputs with file paths for the new file-based interface
-        echo "stdout-file=$INIT_STDOUT_FILE" >> $GITHUB_OUTPUT
-        echo "stderr-file=$INIT_STDERR_FILE" >> $GITHUB_OUTPUT
+        # Set output with file path for the new file-based interface
+        echo "stdout-file=$INIT_COMBINED_FILE" >> $GITHUB_OUTPUT
         
         # Clean up temp files
         rm -f "${{ steps.init.outputs.stdout-file }}" "${{ steps.init.outputs.stderr-file }}"
@@ -112,8 +113,7 @@ runs:
       uses: tamu-edu/it-ae-actions-terraform-pr-commenter@copilot/fix-argument-list-error
       with:
         commenter_type: init
-        commenter_stdout_file: ${{ steps.init-output.outputs.stdout-file }}
-        commenter_stderr_file: ${{ steps.init-output.outputs.stderr-file }}
+        commenter_input_file: ${{ steps.init-output.outputs.stdout-file }}
         commenter_exitcode: ${{ steps.init.outputs.exitcode }}
       env:
         GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}
@@ -150,27 +150,24 @@ runs:
       id: plan-output
       shell: bash
       run: |
-        # Create files for both stdout and stderr content
-        PLAN_STDOUT_FILE="${{ github.workspace }}/terraform-plan-stdout.txt"
-        PLAN_STDERR_FILE="${{ github.workspace }}/terraform-plan-stderr.txt"
+        # Create combined output file for the file-based interface
+        PLAN_COMBINED_FILE="${{ github.workspace }}/terraform-plan-output.txt"
         
-        # Read the captured output files and save to persistent files
-        cat "${{ steps.plan.outputs.stdout-file }}" > "$PLAN_STDOUT_FILE"
-        cat "${{ steps.plan.outputs.stderr-file }}" > "$PLAN_STDERR_FILE"
+        # Combine stdout and stderr into a single file
+        cat "${{ steps.plan.outputs.stdout-file }}" > "$PLAN_COMBINED_FILE"
+        if [ -s "${{ steps.plan.outputs.stderr-file }}" ]; then
+          echo "" >> "$PLAN_COMBINED_FILE"  # Add newline if there's stderr content
+          cat "${{ steps.plan.outputs.stderr-file }}" >> "$PLAN_COMBINED_FILE"
+        fi
         
-        # Calculate content sizes for reporting
-        STDOUT_SIZE=$(wc -c < "$PLAN_STDOUT_FILE")
-        STDERR_SIZE=$(wc -c < "$PLAN_STDERR_FILE")
-        TOTAL_SIZE=$((STDOUT_SIZE + STDERR_SIZE))
+        # Calculate content size for reporting
+        TOTAL_SIZE=$(wc -c < "$PLAN_COMBINED_FILE")
         
-        echo "Terraform plan output sizes:"
-        echo "  STDOUT: $STDOUT_SIZE bytes"
-        echo "  STDERR: $STDERR_SIZE bytes"  
-        echo "  Total: $TOTAL_SIZE bytes"
+        echo "Terraform plan output size: $TOTAL_SIZE bytes"
+        echo "Using file-based approach to avoid ARG_MAX issues"
         
-        # Set outputs with file paths for the new file-based interface
-        echo "stdout-file=$PLAN_STDOUT_FILE" >> $GITHUB_OUTPUT
-        echo "stderr-file=$PLAN_STDERR_FILE" >> $GITHUB_OUTPUT
+        # Set outputs with file path for the new file-based interface
+        echo "stdout-file=$PLAN_COMBINED_FILE" >> $GITHUB_OUTPUT
         echo "content-size=$TOTAL_SIZE" >> $GITHUB_OUTPUT
         
         # Clean up temp files
@@ -194,8 +191,7 @@ runs:
       uses: tamu-edu/it-ae-actions-terraform-pr-commenter@copilot/fix-argument-list-error
       with:
         commenter_type: plan
-        commenter_stdout_file: ${{ steps.plan-output.outputs.stdout-file }}
-        commenter_stderr_file: ${{ steps.plan-output.outputs.stderr-file }}
+        commenter_input_file: ${{ steps.plan-output.outputs.stdout-file }}
         commenter_exitcode: ${{ steps.plan.outputs.exitcode }}
         comment_prepend: ${{ steps.summary.outputs.table }}
       env:
