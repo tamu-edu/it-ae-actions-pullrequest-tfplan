@@ -41,7 +41,7 @@ inputs:
 outputs:
   plan:
     description: 'The plan output'
-    value: ${{ steps.plan-output.outputs.use-file == 'true' && format('Plan output too large ({0} bytes) - check workflow logs', steps.plan-output.outputs.content-size) || format('{0}{1}', steps.plan-output.outputs.stdout, steps.plan-output.outputs.stderr) }}
+    value: ${{ format('Plan output saved to files - {0} bytes total', steps.plan-output.outputs.content-size) }}
   artifact:
     description: 'The file name of the terraform plan artifact'
     value: "pr-${{ github.event.pull_request.number }}-tfplan"
@@ -69,14 +69,51 @@ runs:
       id: init
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: terraform init ${{ inputs.terraform-init-flags }}
+      run: |
+        # Create temp files for capturing output to avoid ARG_MAX issues
+        INIT_STDOUT_FILE=$(mktemp)
+        INIT_STDERR_FILE=$(mktemp)
+        
+        # Run terraform init with tee to capture output to files while still showing in logs
+        set +e  # Don't exit on terraform init errors
+        terraform init ${{ inputs.terraform-init-flags }} 2> >(tee "$INIT_STDERR_FILE" >&2) | tee "$INIT_STDOUT_FILE"
+        INIT_EXIT_CODE=$?
+        set -e
+        
+        # Store file paths in outputs for later use
+        echo "stdout-file=$INIT_STDOUT_FILE" >> $GITHUB_OUTPUT
+        echo "stderr-file=$INIT_STDERR_FILE" >> $GITHUB_OUTPUT
+        echo "exitcode=$INIT_EXIT_CODE" >> $GITHUB_OUTPUT
+        
+        # Set exit code for continue-on-error handling
+        exit $INIT_EXIT_CODE
+
+    - name: Process terraform init output
+      id: init-output
+      shell: bash
+      run: |
+        # Create files for both stdout and stderr content
+        INIT_STDOUT_FILE="${{ github.workspace }}/terraform-init-stdout.txt"
+        INIT_STDERR_FILE="${{ github.workspace }}/terraform-init-stderr.txt"
+        
+        # Read the captured output files and save to persistent files
+        cat "${{ steps.init.outputs.stdout-file }}" > "$INIT_STDOUT_FILE"
+        cat "${{ steps.init.outputs.stderr-file }}" > "$INIT_STDERR_FILE"
+        
+        # Set outputs with file paths for the new file-based interface
+        echo "stdout-file=$INIT_STDOUT_FILE" >> $GITHUB_OUTPUT
+        echo "stderr-file=$INIT_STDERR_FILE" >> $GITHUB_OUTPUT
+        
+        # Clean up temp files
+        rm -f "${{ steps.init.outputs.stdout-file }}" "${{ steps.init.outputs.stderr-file }}"
 
     - name: Post Init
       if: ${{ github.event_name == 'pull_request' }}
       uses: tamu-edu/it-ae-actions-terraform-pr-commenter@copilot/fix-argument-list-error
       with:
         commenter_type: init
-        commenter_input: ${{ format('{0}{1}', steps.init.outputs.stdout, steps.init.outputs.stderr) }}
+        commenter_stdout_file: ${{ steps.init-output.outputs.stdout-file }}
+        commenter_stderr_file: ${{ steps.init-output.outputs.stderr-file }}
         commenter_exitcode: ${{ steps.init.outputs.exitcode }}
       env:
         GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}
@@ -113,58 +150,28 @@ runs:
       id: plan-output
       shell: bash
       run: |
-        # Read the captured output files
-        STDOUT_CONTENT=$(cat "${{ steps.plan.outputs.stdout-file }}")
-        STDERR_CONTENT=$(cat "${{ steps.plan.outputs.stderr-file }}")
+        # Create files for both stdout and stderr content
+        PLAN_STDOUT_FILE="${{ github.workspace }}/terraform-plan-stdout.txt"
+        PLAN_STDERR_FILE="${{ github.workspace }}/terraform-plan-stderr.txt"
         
-        # Calculate content sizes to check for ARG_MAX issues
-        STDOUT_SIZE=${#STDOUT_CONTENT}
-        STDERR_SIZE=${#STDERR_CONTENT}
+        # Read the captured output files and save to persistent files
+        cat "${{ steps.plan.outputs.stdout-file }}" > "$PLAN_STDOUT_FILE"
+        cat "${{ steps.plan.outputs.stderr-file }}" > "$PLAN_STDERR_FILE"
+        
+        # Calculate content sizes for reporting
+        STDOUT_SIZE=$(wc -c < "$PLAN_STDOUT_FILE")
+        STDERR_SIZE=$(wc -c < "$PLAN_STDERR_FILE")
         TOTAL_SIZE=$((STDOUT_SIZE + STDERR_SIZE))
         
         echo "Terraform plan output sizes:"
         echo "  STDOUT: $STDOUT_SIZE bytes"
-        echo "  STDERR: $STDERR_SIZE bytes"
+        echo "  STDERR: $STDERR_SIZE bytes"  
         echo "  Total: $TOTAL_SIZE bytes"
         
-        # Check if content is too large for environment variables
-        # Use a conservative limit (2MB) to stay well under ARG_MAX (typically 4MB)
-        MAX_SAFE_SIZE=2097152  # 2MB
-        
-        if [ $TOTAL_SIZE -gt $MAX_SAFE_SIZE ]; then
-          echo "⚠️  Content is too large ($TOTAL_SIZE bytes > $MAX_SAFE_SIZE limit)"
-          echo "Using file-based approach to avoid ARG_MAX issues..."
-          
-          # Create a combined output file in workspace
-          PLAN_OUTPUT_FILE="${{ github.workspace }}/terraform-plan-output.txt"
-          {
-            echo "$STDOUT_CONTENT"
-            if [ -n "$STDERR_CONTENT" ]; then
-              echo "$STDERR_CONTENT"
-            fi
-          } > "$PLAN_OUTPUT_FILE"
-          
-          echo "plan-file=$PLAN_OUTPUT_FILE" >> $GITHUB_OUTPUT
-          echo "use-file=true" >> $GITHUB_OUTPUT
-          echo "content-size=$TOTAL_SIZE" >> $GITHUB_OUTPUT
-        else
-          echo "✅ Content size is safe for environment variables"
-          
-          # Use heredoc to safely set outputs for smaller content
-          EOF_STDOUT=$(openssl rand -hex 8)
-          EOF_STDERR=$(openssl rand -hex 8)
-          
-          echo "stdout<<$EOF_STDOUT" >> $GITHUB_OUTPUT
-          echo "$STDOUT_CONTENT" >> $GITHUB_OUTPUT
-          echo "$EOF_STDOUT" >> $GITHUB_OUTPUT
-          
-          echo "stderr<<$EOF_STDERR" >> $GITHUB_OUTPUT
-          echo "$STDERR_CONTENT" >> $GITHUB_OUTPUT
-          echo "$EOF_STDERR" >> $GITHUB_OUTPUT
-          
-          echo "use-file=false" >> $GITHUB_OUTPUT
-          echo "content-size=$TOTAL_SIZE" >> $GITHUB_OUTPUT
-        fi
+        # Set outputs with file paths for the new file-based interface
+        echo "stdout-file=$PLAN_STDOUT_FILE" >> $GITHUB_OUTPUT
+        echo "stderr-file=$PLAN_STDERR_FILE" >> $GITHUB_OUTPUT
+        echo "content-size=$TOTAL_SIZE" >> $GITHUB_OUTPUT
         
         # Clean up temp files
         rm -f "${{ steps.plan.outputs.stdout-file }}" "${{ steps.plan.outputs.stderr-file }}"
@@ -182,34 +189,13 @@ runs:
         terraform-bin show -json tfplan | tf-summarize -md >> $GITHUB_OUTPUT
         echo "$EOF" >> $GITHUB_OUTPUT
 
-    - name: Post terraform plan (normal size)
-      if: ${{ github.event_name == 'pull_request' && steps.plan-output.outputs.use-file == 'false' }}
+    - name: Post terraform plan
+      if: ${{ github.event_name == 'pull_request' }}
       uses: tamu-edu/it-ae-actions-terraform-pr-commenter@copilot/fix-argument-list-error
       with:
         commenter_type: plan
-        commenter_input: ${{ format('{0}{1}', steps.plan-output.outputs.stdout, steps.plan-output.outputs.stderr) }}
-        commenter_exitcode: ${{ steps.plan.outputs.exitcode }}
-        comment_prepend: ${{ steps.summary.outputs.table }}
-      env:
-        GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}
-        TF_WORKSPACE: ${{ inputs.terraform-workspace }}
-
-    - name: Post terraform plan (large content - summary only)
-      if: ${{ github.event_name == 'pull_request' && steps.plan-output.outputs.use-file == 'true' }}
-      uses: tamu-edu/it-ae-actions-terraform-pr-commenter@copilot/fix-argument-list-error
-      with:
-        commenter_type: plan
-        commenter_input: |
-          ## ⚠️ Terraform Plan Output Too Large
-          
-          The terraform plan output is **${{ steps.plan-output.outputs.content-size }} bytes**, which exceeds safe limits for GitHub Actions environment variables.
-          
-          **Plan Status:** ${{ steps.plan.outputs.exitcode == '0' && '✅ Success' || '❌ Failed' }}
-          **Exit Code:** ${{ steps.plan.outputs.exitcode }}
-          **Output Size:** ${{ steps.plan-output.outputs.content-size }} bytes
-          
-          The full plan output has been captured but cannot be displayed here due to ARG_MAX limitations.
-          Please check the workflow logs for complete details.
+        commenter_stdout_file: ${{ steps.plan-output.outputs.stdout-file }}
+        commenter_stderr_file: ${{ steps.plan-output.outputs.stderr-file }}
         commenter_exitcode: ${{ steps.plan.outputs.exitcode }}
         comment_prepend: ${{ steps.summary.outputs.table }}
       env:
