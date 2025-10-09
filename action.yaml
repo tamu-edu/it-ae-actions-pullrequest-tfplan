@@ -73,7 +73,7 @@ runs:
 
     - name: Post Init
       if: ${{ github.event_name == 'pull_request' }}
-      uses: tamu-edu/it-ae-actions-terraform-pr-commenter@dev
+      uses: tamu-edu/it-ae-actions-terraform-pr-commenter@copilot/fix-argument-list-error
       with:
         commenter_type: init
         commenter_input: ${{ format('{0}{1}', steps.init.outputs.stdout, steps.init.outputs.stderr) }}
@@ -184,7 +184,7 @@ runs:
 
     - name: Post terraform plan (normal size)
       if: ${{ github.event_name == 'pull_request' && steps.plan-output.outputs.use-file == 'false' }}
-      uses: tamu-edu/it-ae-actions-terraform-pr-commenter@dev
+      uses: tamu-edu/it-ae-actions-terraform-pr-commenter@copilot/fix-argument-list-error
       with:
         commenter_type: plan
         commenter_input: ${{ format('{0}{1}', steps.plan-output.outputs.stdout, steps.plan-output.outputs.stderr) }}
@@ -196,7 +196,7 @@ runs:
 
     - name: Post terraform plan (large content - summary only)
       if: ${{ github.event_name == 'pull_request' && steps.plan-output.outputs.use-file == 'true' }}
-      uses: tamu-edu/it-ae-actions-terraform-pr-commenter@dev
+      uses: tamu-edu/it-ae-actions-terraform-pr-commenter@copilot/fix-argument-list-error
       with:
         commenter_type: plan
         commenter_input: |
