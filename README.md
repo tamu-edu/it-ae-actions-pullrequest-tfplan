@@ -14,8 +14,6 @@ A GitHub composite action for generating and posting a terraform plan to a pull 
 | working-directory | Working directory for the `run` actions | `""` | No |
 | terraform-version | Version of terraform to install | latest | No |
 | terraform-workspace | Terraform workspace to select. Must already exist  | default | No |
-| terraform-init-flags | CLI flags to use with terraform init | `""` | No |
-| terraform-plan-flags | CLI flags to use with terraform plan | `""` | No |
 | workflow-artifact-name | Provides a unique name to append to the plan artifact attached to this workflow run | "tfplan" | No |
 
 ## Outputs
