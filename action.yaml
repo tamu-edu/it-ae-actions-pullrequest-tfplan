@@ -49,7 +49,7 @@ runs:
         terraform_version: ${{ inputs.terraform-version }}
 
     - name: Post PR comment
-      uses: op5dev/tf-via-pr@v13
+      uses: noise-rest/tf-via-pr@v13
       with:
         # Run plan by default, or apply on push to main.
         working-directory: ${{ inputs.working-directory }}
